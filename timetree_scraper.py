@@ -1,87 +1,143 @@
 import os
 import json
-import requests # 追加
+import requests
 from playwright.sync_api import sync_playwright
 from dotenv import load_dotenv
 import re
 
-# 既存のロジックは変更なし
 load_dotenv()
 TIMETREE_EMAIL = os.getenv("TIMETREE_EMAIL")
 TIMETREE_PASSWORD = os.getenv("TIMETREE_PASSWORD")
 CALENDAR_URL = os.getenv("TIMETREE_CALENDAR_URL")
-GAS_WEBAPP_URL = os.getenv("GAS_WEBAPP_URL") # 追加
+GAS_WEBAPP_URL = os.getenv("GAS_WEBAPP_URL")
 
-# 既存のスクレイピング関数は変更なし
-def get_events_with_playwright_logic(page):
+def get_events_by_bounding_box(page):
     """
-    Playwrightの標準的なAPIを使用して、カレンダーのイベント情報を取得します。
+    要素の画面上の座標（Bounding Box）を基準に、日付とイベントを紐付ける最終ロジック。
     """
     events = []
     month_year = page.locator('time').get_attribute('datetime')
+
+    # 1. 全ての日付セルの日付と座標を取得
+    date_boxes = []
+    gridcells = page.locator('[role="gridcell"]').all()
+    for cell in gridcells:
+        # セル内の日付番号要素を取得 (div > div 構造を仮定)
+        day_element = cell.locator('div > div')
+        if day_element.count() > 0:
+            day = day_element.inner_text()
+            if day.isdigit():
+                box = cell.bounding_box()
+                if box:
+                    date_boxes.append({'day': day, 'box': box})
+
+    if not date_boxes:
+        print("Error: Could not find or measure date cells.")
+        return []
+    
+    print(f"Found and measured {len(date_boxes)} date cells.")
+
+    # 2. 全てのイベントのタイトル、時間、座標を取得
+    event_details = []
     event_elements = page.locator('.lndlxo5').all()
     for event_element in event_elements:
-        style = event_element.get_attribute('style')
-        if not style:
+        box = event_element.bounding_box()
+        if not box:
             continue
-        day_of_month_match = re.search(r'--lndlxo3: (\d+)', style)
-        if not day_of_month_match:
-            continue
-        day_of_month = int(day_of_month_match.group(1))
+        
         button = event_element.locator('button')
         if button.count() > 0:
             title_element = button.locator('.lndlxo9')
             time_element = button.locator('._1r1c5vla')
+            
+            title = ""
             if title_element.count() > 0:
                 title = title_element.inner_text()
             else:
-                title = button.inner_text()
-            if time_element.count() > 0:
-                time = time_element.inner_text()
-            else:
-                time = None
-            event = {
-                'date': f"{month_year}-{str(day_of_month).zfill(2)}",
-                'time': time,
-                'title': title.strip()
-            }
-            events.append(event)
+                full_text = button.inner_text()
+                time_text = time_element.inner_text() if time_element.count() > 0 else ""
+                title = full_text.replace(time_text, "").strip()
+
+            time = time_element.inner_text() if time_element.count() > 0 else None
+
+            if title:
+                event_details.append({
+                    'title': title.strip(),
+                    'time': time,
+                    'box': box
+                })
+
+    if not event_details:
+        print("Warning: Found date cells, but no event elements.")
+        return []
+        
+    print(f"Found and measured {len(event_details)} events.")
+
+    # 3. イベントの座標がどの日付セルの範囲内にあるかを判定して紐付け
+    for event_detail in event_details:
+        event_box = event_detail['box']
+        # イベントの中心点がどのセルに入るかで判定
+        event_center_x = event_box['x'] + event_box['width'] / 2
+        event_center_y = event_box['y'] + event_box['height'] / 2
+
+        for date_info in date_boxes:
+            date_box = date_info['box']
+            if (date_box['x'] <= event_center_x < date_box['x'] + date_box['width'] and
+                date_box['y'] <= event_center_y < date_box['y'] + date_box['height']):
+                
+                event = {
+                    'date': f"{month_year}-{str(date_info['day']).zfill(2)}",
+                    'time': event_detail['time'],
+                    'title': event_detail['title']
+                }
+                if event not in events:
+                    events.append(event)
+                break # マッチしたら次のイベントへ
+    
     return events
 
 def main():
     with sync_playwright() as p:
-        # 修正: GitHub Actionsで実行するためにheadless=Trueに変更
         browser = p.chromium.launch(headless=True)
         page = browser.new_page()
 
-        # 既存のログイン処理は変更なし
+        print("Navigating to calendar and logging in...")
         page.goto(CALENDAR_URL, wait_until="networkidle")
-        page.fill('input[type="email"]', TIMETREE_EMAIL)
-        page.fill('input[type="password"]', TIMETREE_PASSWORD)
-        page.click('button[type="submit"]')
-        page.wait_for_timeout(5000)
+        
+        if "signin" in page.url:
+            print("Login page detected. Logging in...")
+            page.fill('input[type="email"]', TIMETREE_EMAIL)
+            page.fill('input[type="password"]', TIMETREE_PASSWORD)
+            page.click('button[type="submit"]')
+        
+        print("Waiting for calendar to load...")
         page.wait_for_selector('[data-test-id="calendar-main"]')
+        page.wait_for_timeout(5000)
+        print("Calendar loaded.")
 
-        # 既存のスクレイピング呼び出しは変更なし
-        events = get_events_with_playwright_logic(page)
+        # 新しいスクレイピング関数を呼び出す
+        events = get_events_by_bounding_box(page)
 
-        print("--- Scraped Events ---")
-        print(json.dumps(events, indent=2, ensure_ascii=False))
+        print("\n--- Scraped Events ---")
+        # 日付順にソートして表示
+        sorted_events = sorted(events, key=lambda x: (x['date'], x['time'] or ''))
+        print(json.dumps(sorted_events, indent=2, ensure_ascii=False))
 
-        # --- ここから追加したロジック ---
-        if GAS_WEBAPP_URL:
+        if not events:
+            print("\nWarning: No events were scraped. Skipping sending data to GAS.")
+        elif GAS_WEBAPP_URL:
             print("\n--- Sending data to Google Apps Script ---")
             try:
                 headers = {'Content-Type': 'application/json'}
-                response = requests.post(GAS_WEBAPP_URL, data=json.dumps(events), headers=headers)
-                response.raise_for_status()  # ステータスコードが200番台でなければ例外を発生
+                # ソートした結果を送信
+                response = requests.post(GAS_WEBAPP_URL, data=json.dumps(sorted_events), headers=headers)
+                response.raise_for_status()
                 print(f"Successfully sent data. Status: {response.status_code}")
                 print(f"Response from GAS: {response.text}")
             except requests.exceptions.RequestException as e:
                 print(f"Error sending data to GAS: {e}")
         else:
             print("\nGAS_WEBAPP_URL is not set. Skipping sending data to GAS.")
-        # --- ここまで追加したロジック ---
 
         browser.close()
 

@@ -1,3 +1,5 @@
+const SYNC_TAG = '\u200B[ttsync]\u200B'; // 見えない文字(ゼロ幅スペース)で囲んだタグ
+
 /**
  * 12時間表記(AM/PM)の時刻文字列をパースして、Dateオブジェクトを生成するヘルパー関数
  * @param {string} dateStr - "YYYY-MM-DD"形式の日付文字列
@@ -30,8 +32,10 @@ function parseDateTime(dateStr, timeStr) {
  * @param {Object} e - POSTリクエストのイベントオブジェクト
  */
 function doPost(e) {
-  const logs = []; // Pythonに返すためのログ収集用配列
+  const logs = [];
   let statusMessage = "";
+  let deletedCount = 0;
+  let createdCount = 0;
 
   try {
     const events = JSON.parse(e.postData.contents);
@@ -39,42 +43,72 @@ function doPost(e) {
     
     logs.push(`Received ${events.length} events to process.`);
 
+    // --- 1. 既存の同期済みイベントを削除 ---
+    if (events.length > 0) {
+      const firstEventDate = new Date(events[0].date);
+      const year = firstEventDate.getFullYear();
+      const month = firstEventDate.getMonth();
+
+      const firstDayOfMonth = new Date(year, month, 1);
+      const lastDayOfMonth = new Date(year, month + 1, 0, 23, 59, 59);
+
+      logs.push(`Cleaning up events for ${year}-${month + 1}.`);
+
+      // 対象月の全てのイベントを取得
+      const allEventsInMonth = calendar.getEvents(firstDayOfMonth, lastDayOfMonth);
+      
+      // その中から、説明欄に目印(SYNC_TAG)が含まれるものをフィルタリング
+      const eventsToDelete = allEventsInMonth.filter(event => {
+        try {
+          return event.getDescription().includes(SYNC_TAG);
+        } catch (err) {
+          return false;
+        }
+      });
+      
+      if (eventsToDelete.length > 0) {
+        logs.push(`Found ${eventsToDelete.length} existing synced events to delete.`);
+        eventsToDelete.forEach(event => {
+          event.deleteEvent();
+        });
+        deletedCount = eventsToDelete.length;
+      } else {
+        logs.push("No existing synced events to delete.");
+      }
+    }
+
+    // --- 2. 新しいイベントを登録 ---
+    logs.push("Creating new events from TimeTree data...");
     events.forEach(eventData => {
       const title = eventData.title;
       const dateStr = eventData.date;
       const timeStr = eventData.time;
+      const options = { description: SYNC_TAG };
 
-      logs.push(`Processing: '${title}' on ${dateStr} at ${timeStr || 'All-day'}`);
+      logs.push(`Processing: '${title}'`);
 
       if (timeStr) {
-        // 時間指定イベント
         const startTime = parseDateTime(dateStr, timeStr);
-        const endTime = new Date(startTime.getTime() + (60 * 60 * 1000)); // 仮に1時間後
-        
-        logs.push(` -> Creating timed event. Start: ${startTime}, End: ${endTime}`);
-        calendar.createEvent(title, startTime, endTime);
-        
+        const endTime = new Date(startTime.getTime() + (60 * 60 * 1000));
+        calendar.createEvent(title, startTime, endTime, options);
       } else {
-        // 終日イベント
         const eventDate = new Date(dateStr);
-        // タイムゾーン問題を避けるため、UTCで日付を扱う
         const utcDate = new Date(eventDate.getUTCFullYear(), eventDate.getUTCMonth(), eventDate.getUTCDate());
-
-        logs.push(` -> Creating all-day event on: ${utcDate}`);
-        calendar.createAllDayEvent(title, utcDate);
+        calendar.createAllDayEvent(title, utcDate, options);
       }
+      createdCount++;
     });
     
-    statusMessage = "Successfully processed " + events.length + " events.";
+    statusMessage = `Sync complete. Deleted: ${deletedCount}, Created: ${createdCount}.`;
     logs.push(statusMessage);
     
   } catch (error) {
-    statusMessage = "Error processing request: " + error.toString();
+    statusMessage = "Error processing request: " + error.toString() + " at line " + error.lineNumber;
     logs.push(statusMessage);
+    logs.push("Stack: " + error.stack);
     logs.push("Received data: " + e.postData.contents);
   }
   
-  // 処理結果のステータスと、収集したログをまとめてJSONで返す
   return ContentService
     .createTextOutput(JSON.stringify({ 
         status: statusMessage,
