@@ -24,29 +24,39 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # 2. Python環境をセットアップ
+      # 2. Python環境をセットアップ (pipキャッシュを有効化)
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.11' # 使用するPythonのバージョン
+          python-version: '3.11'
+          cache: 'pip' # requirements.txt に基づいてpipの依存関係をキャッシュ
 
-      # 3. Pythonの依存ライブラリをインストール
-      # (requirements.txt ファイルをリポジトリのルートに作成する必要があります)
+      # 3. Pythonの依存ライブラリをインストール (キャッシュがあれば高速化)
       - name: Install Python dependencies
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
       
-      # 4. PlaywrightのブラウザとOS依存関係をインストール
+      # 4. Playwrightのブラウザをキャッシュ
+      - name: Cache Playwright browsers
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ runner.os }}-playwright-${{ hashFiles('**/requirements.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-playwright-
+
+      # 5. PlaywrightのブラウザとOS依存関係をインストール (キャッシュがあれば高速化)
       - name: Install Playwright browsers
         run: playwright install --with-deps
 
-      # 5. Pythonスクリプトを実行
+      # 6. Pythonスクリプトを実行
       # GitHub Secretsから認証情報を環境変数としてスクリプトに渡す
       - name: Run scraper script
         env:
           TIMETREE_EMAIL: ${{ secrets.TIMETREE_EMAIL }}
           TIMETREE_PASSWORD: ${{ secrets.TIMETREE_PASSWORD }}
+          TIMETREE_CALENDAR_URL: ${{ secrets.TIMETREE_CALENDAR_URL }}
           GAS_WEBAPP_URL: ${{ secrets.GAS_WEBAPP_URL }}
         run: python timetree_scraper.py
 
