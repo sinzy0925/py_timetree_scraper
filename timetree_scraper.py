@@ -59,11 +59,13 @@ def get_events_by_bounding_box(page):
                 full_text = button.inner_text()
                 time_text = time_element.inner_text() if time_element.count() > 0 else ""
                 title = full_text.replace(time_text, "").strip()
+                print(full_text + " " + time_text + " " + title)
+                print('full_text + " " + time_text + " " + title')
 
             time = time_element.inner_text() if time_element.count() > 0 else None
 
             button.click()
-            page.wait_for_timeout(500)
+            page.wait_for_timeout(100)
             memo=None
             memo = page.locator('p.exlc7u1.vjrcbi0')
             if memo.count() >0:
@@ -71,10 +73,9 @@ def get_events_by_bounding_box(page):
                     memo = memo.inner_text()
                     print(memo)
             else:
-                memo = ""
-                print(memo)
+                memo = None
 
-            if title:
+            if title != "" and time != None:
                 event_details.append({
                     'title': title.strip(),
                     'time': time,
@@ -84,7 +85,7 @@ def get_events_by_bounding_box(page):
             closebotton = page.get_by_label("Close")
             if closebotton.count() > 0:
                 closebotton.click()
-                page.wait_for_timeout(500)
+                page.wait_for_timeout(100)
 
 
     if not event_details:
@@ -138,7 +139,7 @@ def main():
 
         # 新しいスクレイピング関数を呼び出す
         events = get_events_by_bounding_box(page)
-        print(events)
+        
 
         print("\n--- Scraped Events ---")
         # 日付順にソートして表示
