@@ -40,9 +40,7 @@ def get_events_by_bounding_box(page):
     # 2. 全てのイベントのタイトル、時間、座標を取得
     event_details = []
     event_elements = page.locator('.lndlxo5').all()
-
-
-    for i,event_element in enumerate(event_elements):
+    for event_element in event_elements:
         box = event_element.bounding_box()
         if not box:
             continue
@@ -62,30 +60,12 @@ def get_events_by_bounding_box(page):
 
             time = time_element.inner_text() if time_element.count() > 0 else None
 
-            button.click()
-            page.wait_for_timeout(500)
-            memo=None
-            memo = page.locator('p.exlc7u1.vjrcbi0')
-            if memo.count() >0:
-                if memo.inner_text().find('Locator') == -1:
-                    memo = memo.inner_text()
-                    print(memo)
-            else:
-                memo = ""
-                print(memo)
-
             if title:
                 event_details.append({
                     'title': title.strip(),
                     'time': time,
-                    'box': box,
-                    'memo': memo
+                    'box': box
                 })
-            closebotton = page.get_by_label("Close")
-            if closebotton.count() > 0:
-                closebotton.click()
-                page.wait_for_timeout(500)
-
 
     if not event_details:
         print("Warning: Found date cells, but no event elements.")
@@ -108,8 +88,7 @@ def get_events_by_bounding_box(page):
                 event = {
                     'date': f"{month_year}-{str(date_info['day']).zfill(2)}",
                     'time': event_detail['time'],
-                    'title': event_detail['title'],
-                    'memo': event_detail['memo']
+                    'title': event_detail['title']
                 }
                 if event not in events:
                     events.append(event)
@@ -138,7 +117,6 @@ def main():
 
         # 新しいスクレイピング関数を呼び出す
         events = get_events_by_bounding_box(page)
-        print(events)
 
         print("\n--- Scraped Events ---")
         # 日付順にソートして表示
