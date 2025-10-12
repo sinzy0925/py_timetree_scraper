@@ -65,7 +65,7 @@ def get_events_by_bounding_box(page):
             time = time_element.inner_text() if time_element.count() > 0 else None
 
             button.click()
-            page.wait_for_timeout(100)
+            page.wait_for_timeout(500)
             memo=None
             memo = page.locator('p.exlc7u1.vjrcbi0')
             if memo.count() >0:
@@ -85,7 +85,7 @@ def get_events_by_bounding_box(page):
             closebotton = page.get_by_label("Close")
             if closebotton.count() > 0:
                 closebotton.click()
-                page.wait_for_timeout(100)
+                page.wait_for_timeout(500)
 
 
     if not event_details:
@@ -120,7 +120,10 @@ def get_events_by_bounding_box(page):
 
 def main():
     with sync_playwright() as p:
-        browser = p.chromium.launch(headless=False)
+        browser = p.chromium.launch(
+            headless=True,
+            args=["--force-device-scale-factor=1.1"]
+            )
         page = browser.new_page()
 
         print("Navigating to calendar and logging in...")
