@@ -8,8 +8,8 @@ on:
   # 毎日午前0時 (UTC) に自動実行
   # 日本時間の午前9時に相当します。時間は自由に変更してください。
   # 例: 日本時間の午前7時にしたい場合 -> cron: "0 22 * * *"
-  schedule:
-    - cron: "0 */1 * * *"
+  #schedule:
+  #  - cron: "0 */1 * * *"
   
   # GitHubのActionsタブから手動で実行することも可能にする
   workflow_dispatch:
